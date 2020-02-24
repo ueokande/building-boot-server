@@ -53,8 +53,10 @@ assign_network_address() {
 }
 
 start_node() {
-  network_name="$1"
-  serial="$2"
+  enable_uefi="$1"
+  network_name="$2"
+  serial="$3"
+  test -z "$enable_uefi" && abort "start_node: enable_uefi not set"
   test -z "$network_name" && abort "start_node: network_name not set"
   test -z "$serial" && abort "start_node: serial not set"
 
@@ -63,19 +65,22 @@ start_node() {
   setup_tap "$network_name" "$serial"
 
   mac_address=$(printf "52:54:00:%02x:%02x:%02x" $((RANDOM % 256)) $((RANDOM % 256)) $((RANDOM % 256)))
-  qemu-system-x86_64 \
-    -nographic \
-    -smbios "type=1,serial=$serial" \
-    -netdev "tap,id=${network_name},ifname=${tap_name},script=no,downscript=no" \
-    -device "virtio-net-pci,netdev="${network_name}",mac=${mac_address}" \
-    -drive "if=pflash,file=${OVMF_CODE_PATH},format=raw,readonly"
+  qemu_opts="-nographic
+    -smbios type=1,serial=$serial
+    -netdev tap,id=${network_name},ifname=${tap_name},script=no,downscript=no
+    -device virtio-net-pci,netdev="${network_name}",mac=${mac_address}"
+  if [ "$enable_uefi" = "yes" ]; then
+    qemu_opts="$qemu_opts -drive if=pflash,file=${OVMF_CODE_PATH},format=raw,readonly"
+  fi
+  qemu-system-x86_64 $qemu_opts
 
   shutdown_tap "$tap_name"
 }
 
 usage() {
   echo >&2 "Usage: $0 network --name NETWORK_NAME [--address BRIDGE_ADDRESS]"
-  echo >&2 "       $0 node --network NETWORK_NAME --serial SERIAL [--ovmf-path OVMF_CODE_PATH]"
+  echo >&2 "       $0 node --network NETWORK_NAME --serial SERIAL"
+  echo >&2 "               [--enable-uefi] [--ovmf-path OVMF_CODE_PATH]"
 }
 
 usage_network() {
@@ -83,7 +88,8 @@ usage_network() {
 }
 
 usage_node() {
-  echo >&2 "Usage: $0 node --network NETWORK_NAME --serial SERIAL [--ovmf-path OVMF_CODE_PATH]"
+  echo >&2 "Usage: $0 node --network NETWORK_NAME --serial SERIAL"
+  echo >&2 "               [--enable-uefi] [--ovmf-path OVMF_CODE_PATH]"
 }
 
 cmd_network() {
@@ -121,8 +127,13 @@ cmd_network() {
 }
 
 cmd_node() {
+  enable_uefi=no
   while [ "$#" -ne 0 ]; do
     case "$1" in
+      --enable-uefi)
+        enable_uefi=yes
+        shift;
+        ;;
       --ovmf-path)
         OVMF_CODE_PATH="$2"
         shift; shift
@@ -147,7 +158,7 @@ cmd_node() {
   test -z "$serial" && abort "missing --serial parameter"
   test -z "$network_name" && abort "missing --network_name parameter"
 
-  start_node "$network_name" "$serial"
+  start_node "$enable_uefi" "$network_name" "$serial"
 }
 
 mode="$1"
