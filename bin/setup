@@ -1,8 +1,9 @@
 #!/bin/sh -e
 
-x() {
-  echo >&2 "$*"
-  exec $x
+OVMF_CODE="/usr/share/ovmf/x64/OVMF_CODE.fd"
+
+ip() {
+  sudo ip $*
 }
 
 abort() {
@@ -48,7 +49,7 @@ assign_network_address() {
   test -z "$network_name" && abort "assign_network_address: network_name not set"
   test -z "$cidr" && abort "assign_network_address: cidr not set"
 
-  sudo ip address add "$cidr" dev "$network_name"
+  ip address add "$cidr" dev "$network_name"
 }
 
 start_node() {
@@ -65,8 +66,9 @@ start_node() {
   qemu-system-x86_64 \
     -nographic \
     -smbios "type=1,serial=$serial" \
-    -netdev tap,id=$network_name,ifname=$tap_name,script=no,downscript=no \
-    -device virtio-net-pci,netdev="$network_name",mac=$mac_address
+    -netdev "tap,id=${network_name},ifname=${tap_name},script=no,downscript=no" \
+    -device "virtio-net-pci,netdev="${network_name}",mac=${mac_address}" \
+    -drive "if=pflash,file=${OVMF_CODE},format=raw,readonly"
 
   shutdown_tap "$tap_name"
 }
