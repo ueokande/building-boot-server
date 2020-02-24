@@ -1,6 +1,6 @@
 #!/bin/sh -e
 
-OVMF_CODE="/usr/share/ovmf/x64/OVMF_CODE.fd"
+OVMF_CODE_PATH="/usr/share/ovmf/x64/OVMF_CODE.fd"
 
 ip() {
   sudo ip $*
@@ -68,26 +68,51 @@ start_node() {
     -smbios "type=1,serial=$serial" \
     -netdev "tap,id=${network_name},ifname=${tap_name},script=no,downscript=no" \
     -device "virtio-net-pci,netdev="${network_name}",mac=${mac_address}" \
-    -drive "if=pflash,file=${OVMF_CODE},format=raw,readonly"
+    -drive "if=pflash,file=${OVMF_CODE_PATH},format=raw,readonly"
 
   shutdown_tap "$tap_name"
 }
 
 usage() {
-  echo >&2 "Usage: $0 network NETWORK_NAME [HOST_ADDRESS]"
-  echo >&2 "       $0 node NETWORK_NAME SERIAL"
+  echo >&2 "Usage: $0 network --name NETWORK_NAME [--address BRIDGE_ADDRESS]"
+  echo >&2 "       $0 node --network NETWORK_NAME --serial SERIAL [--ovmf-path OVMF_CODE_PATH]"
 }
 
+usage_network() {
+  echo >&2 "Usage: $0 network --name NETWORK_NAME [--address BRIDGE_ADDRESS]"
+}
+
+usage_node() {
+  echo >&2 "Usage: $0 node --network NETWORK_NAME --serial SERIAL [--ovmf-path OVMF_CODE_PATH]"
+}
 
 cmd_network() {
-  network_name=$1
-  host_address=$2
-  test -z "$network_name" && ( usage; exit 2 )
+  while [ "$#" -ne 0 ]; do
+    case "$1" in
+      --name)
+        network_name=$2
+        shift; shift
+        ;;
+      --address)
+        bridge_address=$2
+        shift; shift
+        ;;
+      -h|--help)
+        usage_network
+        return 0
+        ;;
+      *)
+        abort "unknown parameter $1"
+        ;;
+    esac
+  done
+
+  test -z "$network_name" && abort "missing --network parameter"
 
   setup_network "$network_name"
 
-  if [ -n "$host_address" ]; then
-    assign_network_address "$network_name" "$host_address"
+  if [ -n "$bridge_address" ]; then
+    assign_network_address "$network_name" "$bridge_address"
   fi
 
   trap "shutdown_network $network_name" SIGTERM SIGINT
@@ -96,12 +121,31 @@ cmd_network() {
 }
 
 cmd_node() {
-  network_name=$1
-  serial=$2
-  test -z "$serial" && ( usage; exit 2 )
-  test -z "$network_name" && ( usage; exit 2 )
-
-  tap_name="$serial"
+  while [ "$#" -ne 0 ]; do
+    case "$1" in
+      --ovmf-path)
+        OVMF_CODE_PATH="$2"
+        shift; shift
+        ;;
+      --network)
+        network_name=$2
+        shift; shift
+        ;;
+      --serial)
+        serial=$2
+        shift; shift
+        ;;
+      -h|--help)
+        usage_node
+        return 0
+        ;;
+      *)
+        abort "unknown parameter $1"
+        ;;
+    esac
+  done
+  test -z "$serial" && abort "missing --serial parameter"
+  test -z "$network_name" && abort "missing --network_name parameter"
 
   start_node "$network_name" "$serial"
 }
@@ -121,7 +165,10 @@ case "$mode" in
     shift
     cmd_node $@
     ;;
-  *)
+  -h|--help)
     usage
+    ;;
+  *)
+    abort "unknown mode \`${mode}'"
     exit 2
 esac
