@@ -53,34 +53,45 @@ assign_network_address() {
 }
 
 start_node() {
-  enable_uefi="$1"
+  boot_mode="$1"
   network_name="$2"
   serial="$3"
-  test -z "$enable_uefi" && abort "start_node: enable_uefi not set"
+  test -z "$boot_mode" && abort "start_node: boot_mode not set"
   test -z "$network_name" && abort "start_node: network_name not set"
   test -z "$serial" && abort "start_node: serial not set"
 
   tap_name="$serial"
 
-  setup_tap "$network_name" "$serial"
-
   mac_address=$(printf "52:54:00:%02x:%02x:%02x" $((RANDOM % 256)) $((RANDOM % 256)) $((RANDOM % 256)))
-  qemu_opts="-nographic
+  qemu_opts="-nodefaults
+    -enable-kvm
+    -boot n
+    -m 128
+    -nographic
+    -serial stdio
     -smbios type=1,serial=$serial
     -netdev tap,id=${network_name},ifname=${tap_name},script=no,downscript=no
-    -device virtio-net-pci,netdev="${network_name}",mac=${mac_address}"
-  if [ "$enable_uefi" = "yes" ]; then
+    -device virtio-net-pci,netdev="${network_name}",romfile=,mac=${mac_address}"
+  case $boot_mode in
+  uefi)
     qemu_opts="$qemu_opts -drive if=pflash,file=${OVMF_CODE_PATH},format=raw,readonly"
-  fi
-  qemu-system-x86_64 $qemu_opts
+    ;;
+  ipxe)
+    qemu_opts="$qemu_opts -option-rom pxe-virtio.rom"
+    ;;
+  *)
+    abort "unknown boot mode \`${boot_mode}'"
+  esac
 
+  setup_tap "$network_name" "$serial"
+  qemu-system-x86_64 $qemu_opts
   shutdown_tap "$tap_name"
 }
 
 usage() {
   echo >&2 "Usage: $0 network --name NETWORK_NAME [--address BRIDGE_ADDRESS]"
   echo >&2 "       $0 node --network NETWORK_NAME --serial SERIAL"
-  echo >&2 "               [--enable-uefi] [--ovmf-path OVMF_CODE_PATH]"
+  echo >&2 "               [--boot-mode ipxe|uefi] [--ovmf-path OVMF_CODE_PATH]"
 }
 
 usage_network() {
@@ -89,7 +100,7 @@ usage_network() {
 
 usage_node() {
   echo >&2 "Usage: $0 node --network NETWORK_NAME --serial SERIAL"
-  echo >&2 "               [--enable-uefi] [--ovmf-path OVMF_CODE_PATH]"
+  echo >&2 "               [--boot-mode ipxe|uefi] [--ovmf-path OVMF_CODE_PATH]"
 }
 
 cmd_network() {
@@ -127,12 +138,12 @@ cmd_network() {
 }
 
 cmd_node() {
-  enable_uefi=no
+  boot_mode=pxe
   while [ "$#" -ne 0 ]; do
     case "$1" in
-      --enable-uefi)
-        enable_uefi=yes
-        shift;
+      --boot-mode)
+        boot_mode=$2
+        shift; shift
         ;;
       --ovmf-path)
         OVMF_CODE_PATH="$2"
@@ -158,7 +169,7 @@ cmd_node() {
   test -z "$serial" && abort "missing --serial parameter"
   test -z "$network_name" && abort "missing --network_name parameter"
 
-  start_node "$enable_uefi" "$network_name" "$serial"
+  start_node "$boot_mode" "$network_name" "$serial"
 }
 
 mode="$1"
