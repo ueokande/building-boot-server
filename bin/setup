@@ -6,6 +6,10 @@ ip() {
   sudo ip $*
 }
 
+rand() {
+  od -vAn -tu2 -N1 </dev/urandom | sed -z 's/[ \n]//gi'
+}
+
 abort() {
   echo >&2 "$*"
   exit 1;
@@ -54,15 +58,16 @@ assign_network_address() {
 
 start_node() {
   boot_mode="$1"
-  network_name="$2"
-  serial="$3"
+  serial="$2"
   test -z "$boot_mode" && abort "start_node: boot_mode not set"
-  test -z "$network_name" && abort "start_node: network_name not set"
-  test -z "$serial" && abort "start_node: serial not set"
+
+  if [ -z "$serial"]; then
+    serial=$(printf "%02x%02x%02x%02x" $(rand) $(rand) $(rand) $(rand))
+  fi
 
   tap_name="$serial"
 
-  mac_address=$(printf "52:54:00:%02x:%02x:%02x" $((RANDOM % 256)) $((RANDOM % 256)) $((RANDOM % 256)))
+  mac_address=$(printf "52:54:00:%02x:%02x:%02x" $(rand) $(rand) $(rand))
   qemu_opts="-nodefaults
     -enable-kvm
     -boot n
@@ -70,8 +75,8 @@ start_node() {
     -nographic
     -serial stdio
     -smbios type=1,serial=$serial
-    -netdev tap,id=${network_name},ifname=${tap_name},script=no,downscript=no
-    -device virtio-net-pci,netdev="${network_name}",romfile=,mac=${mac_address}"
+    -netdev tap,id=net0,ifname=${tap_name},script=no,downscript=no
+    -device virtio-net-pci,netdev=net0,romfile=,mac=${mac_address}"
   case $boot_mode in
   uefi)
     qemu_opts="$qemu_opts -drive if=pflash,file=${OVMF_CODE_PATH},format=raw,readonly"
@@ -84,13 +89,14 @@ start_node() {
   esac
 
   setup_tap "$network_name" "$serial"
+  trap "shutdown_tap $tap_name" SIGHUP SIGTERM SIGINT EXIT
+
   qemu-system-x86_64 $qemu_opts
-  shutdown_tap "$tap_name"
 }
 
 usage() {
   echo >&2 "Usage: $0 network --name NETWORK_NAME [--address BRIDGE_ADDRESS]"
-  echo >&2 "       $0 node --network NETWORK_NAME --serial SERIAL"
+  echo >&2 "       $0 node --network NETWORK_NAME [--serial SERIAL]"
   echo >&2 "               [--boot-mode ipxe|uefi] [--ovmf-path OVMF_CODE_PATH]"
 }
 
@@ -99,7 +105,7 @@ usage_network() {
 }
 
 usage_node() {
-  echo >&2 "Usage: $0 node --network NETWORK_NAME --serial SERIAL"
+  echo >&2 "Usage: $0 node --network NETWORK_NAME [--serial SERIAL]"
   echo >&2 "               [--boot-mode ipxe|uefi] [--ovmf-path OVMF_CODE_PATH]"
 }
 
@@ -127,18 +133,18 @@ cmd_network() {
   test -z "$network_name" && abort "missing --network parameter"
 
   setup_network "$network_name"
+  trap "shutdown_network $network_name" SIGHUP SIGTERM SIGINT EXIT
 
   if [ -n "$bridge_address" ]; then
     assign_network_address "$network_name" "$bridge_address"
   fi
 
-  trap "shutdown_network $network_name" SIGTERM SIGINT
   echo "Network $network_name created.  Press Ctrl+C to shutdown."
   tail -F /dev/null
 }
 
 cmd_node() {
-  boot_mode=pxe
+  boot_mode=ipxe
   while [ "$#" -ne 0 ]; do
     case "$1" in
       --boot-mode)
@@ -166,10 +172,9 @@ cmd_node() {
         ;;
     esac
   done
-  test -z "$serial" && abort "missing --serial parameter"
   test -z "$network_name" && abort "missing --network_name parameter"
 
-  start_node "$boot_mode" "$network_name" "$serial"
+  start_node "$boot_mode" "$serial"
 }
 
 mode="$1"
