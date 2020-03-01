@@ -2,10 +2,6 @@
 
 OVMF_CODE_PATH="/usr/share/ovmf/x64/OVMF_CODE.fd"
 
-ip() {
-  sudo ip $*
-}
-
 rand() {
   od -vAn -tu2 -N1 </dev/urandom | sed -z 's/[ \n]//gi'
 }
