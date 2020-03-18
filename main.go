@@ -26,6 +26,7 @@ func main() {
 		resp := &dhcp4.Packet{
 			TransactionID: req.TransactionID,
 			HardwareAddr:  req.HardwareAddr,
+			ClientAddr:    req.ClientAddr,
 			YourAddr:      net.IPv4(172, 24, 32, 1),
 			Options:       make(dhcp4.Options),
 		}
