@@ -126,7 +126,7 @@ cmd_network() {
     esac
   done
 
-  test -z "$network_name" && abort "missing --network parameter"
+  test -z "$network_name" && abort "missing --name parameter"
 
   setup_network "$network_name"
   trap "shutdown_network $network_name" SIGHUP SIGTERM SIGINT EXIT
@@ -168,7 +168,7 @@ cmd_node() {
         ;;
     esac
   done
-  test -z "$network_name" && abort "missing --network_name parameter"
+  test -z "$network_name" && abort "missing --network parameter"
 
   start_node "$boot_mode" "$serial"
 }
