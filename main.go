@@ -2,53 +2,42 @@ package main
 
 import (
 	"log"
-	"net"
-
-	"go.universe.tf/netboot/dhcp4"
+	"os"
+	"os/signal"
+	"sync"
 )
 
 func main() {
-	listen := "0.0.0.0:67"
-	conn, err := dhcp4.NewConn(listen)
-	if err != nil {
-		log.Fatalf("[FATAL] Unable to listen on %s: %v", listen, err)
-	}
-	defer conn.Close()
+	dhcp := &DHCPServer{}
 
-	log.Printf("[INFO] Starting DHCP server...")
-	for {
-		req, intf, err := conn.RecvDHCP()
+	go func() {
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, os.Interrupt)
+		<-c
+
+		dhcp.Shutdown()
+	}()
+
+	var wg sync.WaitGroup
+	var m sync.Mutex
+	var errs []error
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		err := dhcp.Start("0.0.0.0:67")
 		if err != nil {
-			log.Fatalf("[ERROR] Failed to receive DHCP package: %v", err)
+			m.Lock()
+			errs = append(errs, err)
+			m.Unlock()
 		}
+	}()
+	wg.Wait()
 
-		log.Printf("[INFO] Received %s from %s", req.Type, req.HardwareAddr)
-		resp := &dhcp4.Packet{
-			TransactionID: req.TransactionID,
-			HardwareAddr:  req.HardwareAddr,
-			ClientAddr:    req.ClientAddr,
-			YourAddr:      net.IPv4(172, 24, 32, 1),
-			Options:       make(dhcp4.Options),
+	if len(errs) > 0 {
+		for _, err := range errs {
+			log.Printf("[ERROR] %v", err)
 		}
-
-		resp.Options[dhcp4.OptSubnetMask] = net.IPv4Mask(255, 255, 0, 0)
-
-		switch req.Type {
-		case dhcp4.MsgDiscover:
-			resp.Type = dhcp4.MsgOffer
-
-		case dhcp4.MsgRequest:
-			resp.Type = dhcp4.MsgAck
-
-		default:
-			log.Printf("[WARN] message type %s not supported", req.Type)
-			continue
-		}
-
-		log.Printf("[INFO] Sending %s to %s", resp.Type, resp.HardwareAddr)
-		err = conn.SendDHCP(resp, intf)
-		if err != nil {
-			log.Printf("[ERROR] unable to send DHCP packet: %v", err)
-		}
+		os.Exit(1)
 	}
 }
