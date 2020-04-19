@@ -67,7 +67,7 @@ start_node() {
   qemu_opts="-nodefaults
     -enable-kvm
     -boot n
-    -m 128
+    -m 512
     -nographic
     -serial stdio
     -smbios type=1,serial=$serial
