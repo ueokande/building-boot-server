@@ -10,21 +10,18 @@ import (
 )
 
 var (
-	flgIPXEForPXEPath   = flag.String("ipxe-for-pxe-path", "", "Path to iPXE ROM for iPXE (undionly.kpxe).  Download it from http://boot.ipxe.org/undionly.kpxe and specify the local path")
-	flgPXEPathPrefix    = flag.String("pxe-path-prefix", "/usr/lib/syslinux/bios", "Path prefix where pxe images are contained in")
-	flgKernelPathPrefix = flag.String("kernel-path-prefix", "/boot", "Path prefix where kernel images are contained in")
+	flgPXEBootFile = flag.String("pxe-boot-file", "pxelinux/pxelinux.0", "The file name used in PXE boot mode")
+	flgTFTPBootDir = flag.String("tftp-boot-dir", "./tftpboot", "The directory including PXE images")
 )
 
 func main() {
 	flag.Parse()
 
 	dhcp := &DHCPServer{
-		BootFilename: "pxelinux/pxelinux.0",
+		BootFilename: *flgPXEBootFile,
 	}
 	tftp := &TFTPServer{
-		IPXERomPath:      *flgIPXEForPXEPath,
-		PXEPathPrefix:    *flgPXEPathPrefix,
-		KernelPathPrefix: *flgKernelPathPrefix,
+		TFTPBootDir: *flgTFTPBootDir,
 	}
 
 	go func() {

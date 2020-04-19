@@ -1,23 +1,18 @@
 package main
 
 import (
-	"errors"
 	"io"
-	"io/ioutil"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"go.universe.tf/netboot/tftp"
 )
 
 type TFTPServer struct {
-	PXEPathPrefix    string
-	KernelPathPrefix string
-	IPXERomPath      string
+	TFTPBootDir string
 
 	conn   net.PacketConn
 	closed bool
@@ -55,46 +50,8 @@ func (s *TFTPServer) Shutdown() error {
 
 func (s *TFTPServer) handle(path string, addr net.Addr) (io.ReadCloser, int64, error) {
 	log.Printf("[INFO] GET %s from %s", path, addr)
-	switch {
-	case path == "pxelinux/pxelinux.cfg/default":
-		return s.handlePXEConfig()
-	case strings.HasPrefix(path, "pxelinux/boot/"):
-		return s.handleKernelImages(strings.TrimPrefix(path, "pxelinux/boot/"))
-	case strings.HasPrefix(path, "pxelinux/"):
-		return s.handlePXEImages(strings.TrimPrefix(path, "pxelinux/"))
-	case path == "undionly.kpxe":
-		return s.handleIPXEImage(path)
-	}
-	return nil, 0, errors.New("not found")
-}
 
-func (s *TFTPServer) handlePXEConfig() (io.ReadCloser, int64, error) {
-	const cfg = `default linux
-
-label linux
-  kernel boot/vmlinuz
-  append initrd=boot/initrd.img console=ttyS0
-`
-	r := ioutil.NopCloser(strings.NewReader(cfg))
-	return r, int64(len(cfg)), nil
-}
-
-func (s *TFTPServer) handlePXEImages(path string) (io.ReadCloser, int64, error) {
-	path = filepath.Join(s.PXEPathPrefix, path)
-	return s.handleFile(path)
-}
-
-func (s *TFTPServer) handleKernelImages(path string) (io.ReadCloser, int64, error) {
-	path = filepath.Join(s.KernelPathPrefix, path)
-	return s.handleFile(path)
-}
-
-func (s *TFTPServer) handleIPXEImage(path string) (io.ReadCloser, int64, error) {
-	return s.handleFile(s.IPXERomPath)
-}
-
-func (s *TFTPServer) handleFile(path string) (io.ReadCloser, int64, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(filepath.Join(s.TFTPBootDir, path))
 	if err != nil {
 		log.Printf("[ERROR] %v", err)
 		return nil, 0, err
