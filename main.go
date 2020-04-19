@@ -5,7 +5,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"sync"
+
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -35,37 +36,12 @@ func main() {
 		tftp.Shutdown()
 	}()
 
-	var wg sync.WaitGroup
-	var m sync.Mutex
-	var errs []error
+	var g errgroup.Group
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		err := dhcp.Start("0.0.0.0:67")
-		if err != nil {
-			m.Lock()
-			errs = append(errs, err)
-			m.Unlock()
-		}
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		err := tftp.Start("0.0.0.0:69")
-		if err != nil {
-			m.Lock()
-			errs = append(errs, err)
-			m.Unlock()
-		}
-	}()
-	wg.Wait()
-
-	if len(errs) > 0 {
-		for _, err := range errs {
-			log.Printf("[ERROR] %v", err)
-		}
-		os.Exit(1)
+	g.Go(func() error { return dhcp.Start("0.0.0.0:67") })
+	g.Go(func() error { return tftp.Start("0.0.0.0:69") })
+	err := g.Wait()
+	if err != nil {
+		log.Fatalf("[ERROR] %v", err)
 	}
 }
