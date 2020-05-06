@@ -12,7 +12,7 @@ import (
 )
 
 type TFTPServer struct {
-	TFTPBootDir string
+	TFTPDir string
 
 	conn   net.PacketConn
 	closed bool
@@ -51,7 +51,7 @@ func (s *TFTPServer) Shutdown() error {
 func (s *TFTPServer) handle(path string, addr net.Addr) (io.ReadCloser, int64, error) {
 	log.Printf("[INFO] GET %s from %s", path, addr)
 
-	f, err := os.Open(filepath.Join(s.TFTPBootDir, path))
+	f, err := os.Open(filepath.Join(s.TFTPDir, path))
 	if err != nil {
 		log.Printf("[ERROR] %v", err)
 		return nil, 0, err
