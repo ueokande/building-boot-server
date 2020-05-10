@@ -6,6 +6,29 @@ import (
 	"net/http"
 )
 
+type StatusCaptureResponseWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *StatusCaptureResponseWriter) WriteHeader(code int) {
+	w.ResponseWriter.WriteHeader(code)
+	w.status = code
+}
+
+type AccessLogHandler struct {
+	http.Handler
+}
+
+func (s *AccessLogHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	capw := &StatusCaptureResponseWriter{
+		ResponseWriter: w,
+		status:         http.StatusOK,
+	}
+	s.Handler.ServeHTTP(capw, req)
+	log.Printf("[INFO] %s %s - %d - %s", req.Method, req.URL.Path, capw.status, req.RemoteAddr)
+}
+
 type HTTPServer struct {
 	HTTPDir string
 
@@ -15,7 +38,7 @@ type HTTPServer struct {
 func (s *HTTPServer) Start(listen string) error {
 	s.srv = &http.Server{
 		Addr:    listen,
-		Handler: http.FileServer(http.Dir(s.HTTPDir)),
+		Handler: &AccessLogHandler{http.FileServer(http.Dir(s.HTTPDir))},
 	}
 
 	log.Printf("[INFO] Starting HTTP server on %s ...", listen)
