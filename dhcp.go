@@ -12,6 +12,11 @@ import (
 	"go.universe.tf/netboot/dhcp4"
 )
 
+type ClientType struct {
+	VendorClass VendorClass
+	IPXE        bool
+}
+
 type VendorClass int
 
 const (
@@ -51,8 +56,8 @@ var errVendorClassNotPresent = errors.New("vendor-class identifier not presented
 const OptUserClass = 77
 
 type DHCPServer struct {
-	TFTPBootFile     string
-	IPXEHTTPBootFile string
+	PXEBIOSBootFile  string
+	IPXEBIOSBootFile string
 
 	conn   *dhcp4.Conn
 	closed bool
@@ -85,7 +90,7 @@ func (s *DHCPServer) Start(listen string) error {
 			log.Printf("[ERROR] unable to determine an address of %s: %v", intf.Name, err)
 			continue
 		}
-		vendorclass, err := detectVendorClass(req)
+		client, err := detectClientType(req)
 		if err == errVendorClassNotPresent {
 			log.Printf("[WARN] Vendor-Class not presented")
 			continue
@@ -93,8 +98,8 @@ func (s *DHCPServer) Start(listen string) error {
 			if err, ok := err.(*unknownVendorClassError); ok {
 				log.Printf("[WARN] Unsupported Vendor-Classs: %s", err.VendorClass)
 			} else {
+				log.Printf("[WARN] Unable to get Vendor class identifier: %v", err)
 			}
-			log.Printf("[WARN] Unable to get Vendor class identifier: %v", err)
 			continue
 		}
 
@@ -110,17 +115,14 @@ func (s *DHCPServer) Start(listen string) error {
 		resp.Options[dhcp4.OptSubnetMask] = addr.Mask
 		resp.Options[dhcp4.OptServerIdentifier] = addr.IP.To4()
 
-		switch vendorclass {
-		case PXEClientBIOS:
-			userclass, err := req.Options.String(OptUserClass)
-			if err == nil && userclass == "iPXE" {
-				s.handleIPXEBoot(resp)
-			} else {
-				s.handlePXEBoot(resp)
-			}
-		default:
-			log.Printf("[WARN] Unsupported vendorclass %q", vendorclass)
-			continue
+		if client.VendorClass == PXEClientBIOS && client.IPXE == true {
+			// PXE Boot (Legacy BIOS)
+			resp.BootFilename = fmt.Sprintf("http://%s/%s", resp.ServerAddr, s.IPXEBIOSBootFile)
+		} else if client.VendorClass == PXEClientBIOS {
+			// iPXE Boot (Legacy BIOS)
+			resp.BootFilename = s.PXEBIOSBootFile
+		} else {
+			log.Printf("[WARN] Unsupported Vendor-Class: %s", client.VendorClass)
 		}
 
 		switch req.Type {
@@ -168,33 +170,35 @@ func interfaceAddr(intf *net.Interface) (*net.IPNet, error) {
 	return nil, errors.New("addresses not set")
 }
 
-func detectVendorClass(req *dhcp4.Packet) (VendorClass, error) {
+func detectClientType(req *dhcp4.Packet) (ClientType, error) {
 	_, ok := req.Options[dhcp4.OptVendorIdentifier]
 	if !ok {
-		return 0, errVendorClassNotPresent
+		return ClientType{}, errVendorClassNotPresent
 	}
-	vendorclass, err := req.Options.String(dhcp4.OptVendorIdentifier)
+	opt, err := req.Options.String(dhcp4.OptVendorIdentifier)
 	if err != nil {
-		return 0, err
+		return ClientType{}, err
 	}
-	if strings.HasPrefix(vendorclass, "PXEClient:Arch:00000:") {
-		return PXEClientBIOS, nil
-	} else if strings.HasPrefix(vendorclass, "PXEClient:Arch:00006:") {
-		return PXEClientX86, nil
-	} else if strings.HasPrefix(vendorclass, "PXEClient:Arch:00007:") {
-		return PXEClientX64, nil
-	} else if strings.HasPrefix(vendorclass, "HTTPClient:Arch:00015:") {
-		return HTTPClientX86, nil
-	} else if strings.HasPrefix(vendorclass, "HTTPClient:Arch:00016:") {
-		return HTTPClientX64, nil
+	var vendor VendorClass
+	if strings.HasPrefix(opt, "PXEClient:Arch:00000:") {
+		vendor = PXEClientBIOS
+	} else if strings.HasPrefix(opt, "PXEClient:Arch:00006:") {
+		vendor = PXEClientX86
+	} else if strings.HasPrefix(opt, "PXEClient:Arch:00007:") {
+		vendor = PXEClientX64
+	} else if strings.HasPrefix(opt, "HTTPClient:Arch:00015:") {
+		vendor = HTTPClientX86
+	} else if strings.HasPrefix(opt, "HTTPClient:Arch:00016:") {
+		vendor = HTTPClientX64
+	} else {
+		return ClientType{}, &unknownVendorClassError{VendorClass: opt}
 	}
-	return -1, &unknownVendorClassError{VendorClass: vendorclass}
-}
 
-func (s *DHCPServer) handleIPXEBoot(pkt *dhcp4.Packet) {
-	pkt.BootFilename = fmt.Sprintf("http://%s/%s", pkt.ServerAddr, s.IPXEHTTPBootFile)
-}
+	userclass, err := req.Options.String(OptUserClass)
+	ipxe := err == nil && userclass == "iPXE"
 
-func (s *DHCPServer) handlePXEBoot(pkt *dhcp4.Packet) {
-	pkt.BootFilename = s.TFTPBootFile
+	return ClientType{
+		VendorClass: vendor,
+		IPXE:        ipxe,
+	}, nil
 }
