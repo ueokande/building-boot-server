@@ -116,10 +116,10 @@ func (s *DHCPServer) Start(listen string) error {
 		resp.Options[dhcp4.OptServerIdentifier] = addr.IP.To4()
 
 		if client.VendorClass == PXEClientBIOS && client.IPXE == true {
-			// PXE Boot (Legacy BIOS)
+			// iPXE HTTP Boot (Legacy BIOS)
 			resp.BootFilename = fmt.Sprintf("http://%s/%s", addr.IP, s.IPXEBIOSBootFile)
 		} else if client.VendorClass == PXEClientBIOS {
-			// iPXE Boot (Legacy BIOS)
+			// iPXE TFTP Boot (Legacy BIOS)
 			resp.BootFilename = s.PXEBIOSBootFile
 		} else {
 			log.Printf("[WARN] Unsupported Vendor-Class: %s", client.VendorClass)
