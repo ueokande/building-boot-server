@@ -10,7 +10,8 @@ import (
 )
 
 var (
-	flgPXEBootFile = flag.String("pxe-boot-file", "pxelinux/pxelinux.0", "The file name used in PXE boot mode")
+	flgTFTPBootFile     = flag.String("tftp-boot-file", "pxelinux/pxelinux.0", "The file name used in PXE TFTP boot")
+	flgIPXEHTTPBootFile = flag.String("ipxe-http-boot-file", "boot.ipxe", "The file name used in iPXE HTTP boot")
 
 	flgTFTPDir = flag.String("tftp-dir", "./tftpboot", "The base directory including files served by TFTP server")
 	flgHTTPDir = flag.String("http-dir", "./httpboot", "The base directory including files served by HTTP server")
@@ -20,7 +21,8 @@ func main() {
 	flag.Parse()
 
 	dhcp := &DHCPServer{
-		BootFilename: *flgPXEBootFile,
+		TFTPBootFile:     *flgTFTPBootFile,
+		IPXEHTTPBootFile: *flgIPXEHTTPBootFile,
 	}
 	tftp := &TFTPServer{
 		TFTPDir: *flgTFTPDir,

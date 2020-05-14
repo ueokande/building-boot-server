@@ -3,15 +3,56 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"log"
 	"net"
+	"strings"
 	"sync"
 
 	"go.universe.tf/netboot/dhcp4"
 )
 
+type VendorClass int
+
+const (
+	PXEClientBIOS VendorClass = iota
+	PXEClientX86
+	PXEClientX64
+	HTTPClientX86
+	HTTPClientX64
+)
+
+func (v VendorClass) String() string {
+	switch v {
+	case PXEClientBIOS:
+		return "PXEClient (BIOS)"
+	case PXEClientX86:
+		return "PXEClient (x86)"
+	case PXEClientX64:
+		return "PXEClient (x64)"
+	case HTTPClientX86:
+		return "HTTPClient (x86)"
+	case HTTPClientX64:
+		return "HTTPClient (x64)"
+	}
+	panic("unexpected vendor class")
+}
+
+type unknownVendorClassError struct {
+	VendorClass string
+}
+
+func (e *unknownVendorClassError) Error() string {
+	return fmt.Sprintf("unknown vendor class %q", e.VendorClass)
+}
+
+var errVendorClassNotPresent = errors.New("vendor-class identifier not presented")
+
+const OptUserClassIdentification = 77
+
 type DHCPServer struct {
-	BootFilename string
+	TFTPBootFile     string
+	IPXEHTTPBootFile string
 
 	conn   *dhcp4.Conn
 	closed bool
@@ -37,25 +78,50 @@ func (s *DHCPServer) Start(listen string) error {
 
 			return err
 		}
+		log.Printf("[INFO] Received %s from %s", req.Type, req.HardwareAddr)
+
 		addr, err := interfaceAddr(intf)
 		if err != nil {
 			log.Printf("[ERROR] unable to determine an address of %s: %v", intf.Name, err)
 			continue
 		}
+		vendorclass, err := detectVendorClass(req)
+		if err == errVendorClassNotPresent {
+			log.Printf("[WARN] Vendor-Class not presented")
+			continue
+		} else if err != nil {
+			if err, ok := err.(*unknownVendorClassError); ok {
+				log.Printf("[WARN] Unsupported Vendor-Classs: %s", err.VendorClass)
+			} else {
+			}
+			log.Printf("[WARN] Unable to get Vendor class identifier: %v", err)
+			continue
+		}
 
-		log.Printf("[INFO] Received %s from %s", req.Type, req.HardwareAddr)
 		resp := &dhcp4.Packet{
 			TransactionID: req.TransactionID,
 			HardwareAddr:  req.HardwareAddr,
 			ClientAddr:    req.ClientAddr,
 			YourAddr:      net.IPv4(172, 24, 32, 1),
 			Options:       make(dhcp4.Options),
-
-			ServerAddr:   addr.IP,
-			BootFilename: s.BootFilename,
+			ServerAddr:    addr.IP,
 		}
 
-		resp.Options[dhcp4.OptSubnetMask] = net.IPv4Mask(255, 255, 0, 0)
+		resp.Options[dhcp4.OptSubnetMask] = addr.Mask
+		resp.Options[dhcp4.OptServerIdentifier] = addr.IP.To4()
+
+		switch vendorclass {
+		case PXEClientBIOS:
+			userclass, err := req.Options.String(OptUserClassIdentification)
+			if err == nil && userclass == "iPXE" {
+				s.handleIPXEBoot(resp)
+			} else {
+				s.handlePXEBoot(resp)
+			}
+		default:
+			log.Printf("[WARN] Unsupported vendorclass %q", vendorclass)
+			continue
+		}
 
 		switch req.Type {
 		case dhcp4.MsgDiscover:
@@ -100,4 +166,35 @@ func interfaceAddr(intf *net.Interface) (*net.IPNet, error) {
 		}
 	}
 	return nil, errors.New("addresses not set")
+}
+
+func detectVendorClass(req *dhcp4.Packet) (VendorClass, error) {
+	_, ok := req.Options[dhcp4.OptVendorIdentifier]
+	if !ok {
+		return 0, errVendorClassNotPresent
+	}
+	vendorclass, err := req.Options.String(dhcp4.OptVendorIdentifier)
+	if err != nil {
+		return 0, err
+	}
+	if strings.HasPrefix(vendorclass, "PXEClient:Arch:00000:") {
+		return PXEClientBIOS, nil
+	} else if strings.HasPrefix(vendorclass, "PXEClient:Arch:00006:") {
+		return PXEClientX86, nil
+	} else if strings.HasPrefix(vendorclass, "PXEClient:Arch:00007:") {
+		return PXEClientX64, nil
+	} else if strings.HasPrefix(vendorclass, "HTTPClient:Arch:00015:") {
+		return HTTPClientX86, nil
+	} else if strings.HasPrefix(vendorclass, "HTTPClient:Arch:00016:") {
+		return HTTPClientX64, nil
+	}
+	return -1, &unknownVendorClassError{VendorClass: vendorclass}
+}
+
+func (s *DHCPServer) handleIPXEBoot(pkt *dhcp4.Packet) {
+	pkt.BootFilename = fmt.Sprintf("http://%s/%s", pkt.ServerAddr, s.IPXEHTTPBootFile)
+}
+
+func (s *DHCPServer) handlePXEBoot(pkt *dhcp4.Packet) {
+	pkt.BootFilename = s.TFTPBootFile
 }
