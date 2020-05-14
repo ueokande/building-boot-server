@@ -117,7 +117,7 @@ func (s *DHCPServer) Start(listen string) error {
 
 		if client.VendorClass == PXEClientBIOS && client.IPXE == true {
 			// PXE Boot (Legacy BIOS)
-			resp.BootFilename = fmt.Sprintf("http://%s/%s", resp.ServerAddr, s.IPXEBIOSBootFile)
+			resp.BootFilename = fmt.Sprintf("http://%s/%s", addr.IP, s.IPXEBIOSBootFile)
 		} else if client.VendorClass == PXEClientBIOS {
 			// iPXE Boot (Legacy BIOS)
 			resp.BootFilename = s.PXEBIOSBootFile
