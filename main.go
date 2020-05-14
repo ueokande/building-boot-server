@@ -15,6 +15,10 @@ var (
 
 	flgTFTPDir = flag.String("tftp-dir", "./tftpboot", "The base directory including files served by TFTP server")
 	flgHTTPDir = flag.String("http-dir", "./httpboot", "The base directory including files served by HTTP server")
+
+	flgDHCPListen = flag.String("dhcp-listen", "0.0.0.0:67", "Address and port to listen for DHCP requests on")
+	flgTFTPListen = flag.String("tftp-listen", "0.0.0.0:69", "Address and port to listen for TFTP requests on")
+	flgHTTPListen = flag.String("http-listen", "0.0.0.0:80", "Address and port to listen for HTTP requests on")
 )
 
 func main() {
@@ -43,9 +47,9 @@ func main() {
 
 	var g errgroup.Group
 
-	g.Go(func() error { return dhcp.Start("0.0.0.0:67") })
-	g.Go(func() error { return tftp.Start("0.0.0.0:69") })
-	g.Go(func() error { return http.Start("0.0.0.0:80") })
+	g.Go(func() error { return dhcp.Start(*flgDHCPListen) })
+	g.Go(func() error { return tftp.Start(*flgTFTPListen) })
+	g.Go(func() error { return http.Start(*flgHTTPListen) })
 	err := g.Wait()
 	if err != nil {
 		log.Fatalf("[ERROR] %v", err)
